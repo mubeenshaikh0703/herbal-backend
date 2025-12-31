@@ -18,10 +18,14 @@ cloudinary.config(
 )
 
 # -------------------------------
-# DATABASE (ABSOLUTE PATH)
+# DATABASE (PERSISTENT SAFE PATH)
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "database.db")
+
+# IMPORTANT FIX 👇
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "database.db")
 
 def get_db():
     con = sqlite3.connect(DB_PATH)
@@ -29,33 +33,37 @@ def get_db():
     return con
 
 # -------------------------------
-# CREATE TABLES
+# CREATE TABLES (SAFE)
 # -------------------------------
-with get_db() as con:
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            price TEXT,
-            image TEXT,
-            ingredients TEXT
-        )
-    """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS wishlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            product TEXT
-        )
-    """)
+def init_db():
+    with get_db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                price TEXT,
+                image TEXT,
+                ingredients TEXT
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS wishlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                product TEXT
+            )
+        """)
+        con.commit()
+
+init_db()
 
 # -------------------------------
 # SAFE DATA READER
@@ -72,7 +80,6 @@ def get_data():
 @app.route("/register", methods=["POST"])
 def register():
     data = get_data()
-
     name = data.get("name")
     email = data.get("email")
     password = data.get("password")
@@ -80,16 +87,16 @@ def register():
     if not name or not email or not password:
         return jsonify(success=False, message="All fields required")
 
-    with get_db() as con:
-        if con.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone():
-            return jsonify(success=False, message="Email already exists")
-
-        con.execute(
-            "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-            (name.strip(), email.strip(), password.strip())
-        )
-
-    return jsonify(success=True)
+    try:
+        with get_db() as con:
+            con.execute(
+                "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
+                (name.strip(), email.strip(), password.strip())
+            )
+            con.commit()
+        return jsonify(success=True)
+    except sqlite3.IntegrityError:
+        return jsonify(success=False, message="Email already exists")
 
 # -------------------------------
 # LOGIN
@@ -97,7 +104,6 @@ def register():
 @app.route("/login", methods=["POST"])
 def login():
     data = get_data()
-
     email = data.get("email")
     password = data.get("password")
 
@@ -106,7 +112,7 @@ def login():
 
     with get_db() as con:
         user = con.execute(
-            "SELECT * FROM users WHERE email = ? AND password = ?",
+            "SELECT id FROM users WHERE email = ? AND password = ?",
             (email.strip(), password.strip())
         ).fetchone()
 
@@ -133,16 +139,17 @@ def add_product():
             "INSERT INTO products (name, price, image, ingredients) VALUES (?, ?, ?, ?)",
             (name, price, image_url, ingredients)
         )
+        con.commit()
 
     return jsonify(success=True)
 
 # -------------------------------
-# PRODUCTS
+# GET PRODUCTS
 # -------------------------------
 @app.route("/products")
 def products():
     with get_db() as con:
-        rows = con.execute("SELECT * FROM products").fetchall()
+        rows = con.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
     return jsonify([dict(r) for r in rows])
 
 # -------------------------------
@@ -152,6 +159,7 @@ def products():
 def delete_product(id):
     with get_db() as con:
         con.execute("DELETE FROM products WHERE id = ?", (id,))
+        con.commit()
     return jsonify(success=True)
 
 # -------------------------------
@@ -165,6 +173,7 @@ def wishlist():
             "INSERT INTO wishlist (email, product) VALUES (?, ?)",
             (data.get("email"), data.get("product"))
         )
+        con.commit()
     return jsonify(success=True)
 
 # -------------------------------
@@ -186,5 +195,5 @@ def wishlist_data():
 # START SERVER
 # -------------------------------
 if __name__ == "__main__":
-    print("Using database:", DB_PATH)
+    print("Database location:", DB_PATH)
     app.run()
