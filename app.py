@@ -5,9 +5,6 @@ import os
 import cloudinary
 import cloudinary.uploader
 
-# -------------------------------
-# APP SETUP
-# -------------------------------
 app = Flask(__name__)
 CORS(app)
 
@@ -61,7 +58,7 @@ with get_db() as con:
     """)
 
 # -------------------------------
-# SAFE DATA READER (FINAL)
+# SAFE DATA READER
 # -------------------------------
 def get_data():
     data = request.get_json(silent=True)
@@ -84,11 +81,7 @@ def register():
         return jsonify(success=False, message="All fields required")
 
     with get_db() as con:
-        cur = con.execute(
-            "SELECT id FROM users WHERE email = ?",
-            (email.strip(),)
-        )
-        if cur.fetchone():
+        if con.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone():
             return jsonify(success=False, message="Email already exists")
 
         con.execute(
@@ -108,10 +101,6 @@ def login():
     email = data.get("email")
     password = data.get("password")
 
-    if not email or not password:
-        return jsonify(success=False)
-
-    # ADMIN LOGIN
     if email == "admin@gmail.com" and password == "abc212":
         return jsonify(success=True, admin=True)
 
@@ -121,10 +110,7 @@ def login():
             (email.strip(), password.strip())
         ).fetchone()
 
-    if user:
-        return jsonify(success=True, admin=False)
-
-    return jsonify(success=False)
+    return jsonify(success=bool(user), admin=False)
 
 # -------------------------------
 # ADD PRODUCT
@@ -137,7 +123,7 @@ def add_product():
     image = request.files.get("image")
 
     if not image:
-        return jsonify(success=False, message="No image provided")
+        return jsonify(success=False, message="No image")
 
     upload = cloudinary.uploader.upload(image)
     image_url = upload["secure_url"]
@@ -201,5 +187,4 @@ def wishlist_data():
 # -------------------------------
 if __name__ == "__main__":
     print("Using database:", DB_PATH)
-    print("Backend running at http://127.0.0.1:5000")
-    app.run(debug=True)
+    app.run()
